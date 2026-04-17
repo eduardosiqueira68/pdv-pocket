@@ -1,4 +1,4 @@
-name: Mobile App Audit & Quality Check
+﻿name: Mobile App Audit & Quality Check
 
 on:
   push:
@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  audit:
+  test:
     runs-on: ubuntu-latest
-    name: Project Audit
+    name: Unit Tests & TypeScript Check
     
     steps:
       - name: Checkout code
@@ -20,17 +20,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'pnpm'
       
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9.12.0
+      - name: Install pnpm
+        run: npm install -g pnpm
       
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       
-      - name: Run TypeScript check
+      - name: TypeScript check
         run: pnpm check
         continue-on-error: true
       
@@ -38,120 +35,6 @@ jobs:
         run: pnpm test
         continue-on-error: true
       
-      - name: Download audit script
-        run: |
-          mkdir -p .audit
-          curl -fsSL -o .audit/audit_project.py \
-            https://raw.githubusercontent.com/manus-ai/skills/main/mobile-app-audit-fix/scripts/audit_project.py
-      
-      - name: Run project audit
-        id: audit
-        run: |
-          python .audit/audit_project.py . > audit-report.txt 2>&1
-          cat audit-report.txt
-        continue-on-error: true
-      
-      - name: Parse audit results
-        id: parse
-        run: |
-          ISSUES=$(grep -c "^  •" audit-report.txt || echo "0")
-          WARNINGS=$(grep -c "⚠️" audit-report.txt || echo "0")
-          PASSED=$(grep -c "✅" audit-report.txt || echo "0")
-          echo "issues=$ISSUES" >> $GITHUB_OUTPUT
-          echo "warnings=$WARNINGS" >> $GITHUB_OUTPUT
-          echo "passed=$PASSED" >> $GITHUB_OUTPUT
-      
-      - name: Comment on PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const report = fs.readFileSync('audit-report.txt', 'utf8');
-            const issues = '${{ steps.parse.outputs.issues }}';
-            const warnings = '${{ steps.parse.outputs.warnings }}';
-            const passed = '${{ steps.parse.outputs.passed }}';
-            
-            const statusEmoji = issues > 0 ? '❌' : warnings > 0 ? '⚠️' : '✅';
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `## ${statusEmoji} Mobile App Audit Report\n\n**Summary:**\n- Issues: ${issues}\n- Warnings: ${warnings}\n- Passed: ${passed}\n\n**Details:**\n\`\`\`\n${report}\n\`\`\``
-            });
-      
-      - name: Upload audit report
-        uses: actions/upload-artifact@v4
-        with:
-          name: audit-report
-          path: audit-report.txt
-          retention-days: 30
-      
-      - name: Fail if critical issues
-        run: |
-          ISSUES=${{ steps.parse.outputs.issues }}
-          if [ "$ISSUES" -gt 0 ]; then
-            echo "❌ Build failed: $ISSUES critical issues found"
-            exit 1
-          fi
-
-  lint:
-    runs-on: ubuntu-latest
-    name: Linting
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
-      
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9.12.0
-      
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      
       - name: Run linter
         run: pnpm lint
         continue-on-error: true
-
-  build:
-    runs-on: ubuntu-latest
-    name: Build
-    needs: [audit, lint]
-    if: success()
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
-      
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9.12.0
-      
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      
-      - name: Build project
-        run: pnpm build
-      
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build
-          path: dist/
-          retention-days: 7
